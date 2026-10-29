@@ -182,7 +182,7 @@ export default function App() {
   }
 
   const filteredJobs = jobs.filter((job) => `${job.title} ${job.companyName ?? ""} ${job.location ?? ""}`.toLowerCase().includes(search.toLowerCase()));
-  const isRecruiter = user.role?.toUpperCase() === "RECRUITER";
+  const isRecruiter = user?.role?.toUpperCase() === "RECRUITER";
   const menu = [
     { name: "Overview", icon: LayoutDashboard },
     ...(isRecruiter ? [
