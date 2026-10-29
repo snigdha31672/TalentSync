@@ -83,7 +83,7 @@ export default function App() {
       const responses = await Promise.all([
         fetch(`${API}/api/jobs`, { headers }),
         fetch(`${API}/api/applications`, { headers }),
-        fetch(`${API}/api/recruitment`, { headers }),
+        fetch(`${API}/api/recruitment${user?.role?.toUpperCase() === "CANDIDATE" ? `?candidateId=${encodeURIComponent(user.username)}` : ""}`, { headers }),
       ]);
       if (responses.some((response) => response.status === 401)) {
         logout("Your session expired. Please log in again.");
