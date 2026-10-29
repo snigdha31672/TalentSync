@@ -589,3 +589,56 @@ button {
     gap: 10px;
   }
 }
+
+/* Recruiter workflow additions */
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 15px;
+}
+.form-grid input,
+.form-grid select,
+.panel textarea {
+  font: inherit;
+}
+.panel textarea {
+  min-height: 90px;
+  resize: vertical;
+}
+.action-stack {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.action-stack .text-button {
+  margin-top: 0;
+  padding: 8px 10px;
+  border: 1px solid #e4e1f5;
+  border-radius: 8px;
+}
+.candidate-row {
+  align-items: flex-start;
+}
+.candidate-row a {
+  display: inline-block;
+  margin-top: 8px;
+  color: #654bc1;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.candidate-row p {
+  color: #525b70;
+  font-size: 13px;
+  line-height: 1.5;
+}
+button:disabled {
+  opacity: .6;
+  cursor: not-allowed;
+}
+@media (max-width: 650px) {
+  .form-grid { grid-template-columns: 1fr; }
+  .list-row { flex-wrap: wrap; }
+  .action-stack { justify-content: flex-start; width: 100%; }
+}
