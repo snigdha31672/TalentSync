@@ -24,9 +24,9 @@ type User = {
   email?: string;
   role: string;
 };
-type Job = { id: number; title: string; companyName?: string; location?: string; employmentType?: string; description?: string; requiredSkills?: string; status?: string };
-type Application = { id: number; jobId?: number; status?: string };
-type Interview = { id: number; status?: string; interviewDate?: string };
+type Job = { id: number; title: string; companyName?: string; location?: string; employmentType?: string; description?: string; requiredSkills?: string; salaryRange?: string; experienceRequired?: string; status?: string };
+type Application = { id: number; jobId?: number; status?: string; candidateId?: string; candidateName?: string; candidateEmail?: string; resumeUrl?: string; coverLetter?: string };
+type Interview = { id: number; applicationId?: number; jobTitle?: string; candidateName?: string; candidateId?: string; interviewStatus?: string; interviewDateTime?: string; interviewMode?: string; interviewLocation?: string; interviewer?: string; finalStatus?: string };
 
 export default function App() {
   const [page, setPage] = useState("Overview");
@@ -43,6 +43,11 @@ export default function App() {
   const [authMessage, setAuthMessage] = useState("");
   const [loginForm, setLoginForm] = useState({ username: "", password: "" });
   const [registerForm, setRegisterForm] = useState({ fullName: "", username: "", email: "", password: "", role: "CANDIDATE" });
+  const [jobForm, setJobForm] = useState({ title: "", companyName: "", location: "Remote", employmentType: "FULL_TIME", description: "", requiredSkills: "", salaryRange: "", experienceRequired: "Fresher", applicationDeadline: "" });
+  const [applyJob, setApplyJob] = useState<Job | null>(null);
+  const [applyForm, setApplyForm] = useState({ candidateEmail: "", resumeUrl: "", coverLetter: "" });
+  const [interviewForm, setInterviewForm] = useState({ applicationId: "", interviewDateTime: "", interviewMode: "ONLINE", interviewLocation: "", interviewer: "" });
+  const [actionMessage, setActionMessage] = useState("");
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -78,7 +83,7 @@ export default function App() {
       const responses = await Promise.all([
         fetch(`${API}/api/jobs`, { headers }),
         fetch(`${API}/api/applications`, { headers }),
-        fetch(`${API}/api/recruitment/interviews`, { headers }),
+        fetch(`${API}/api/recruitment`, { headers }),
       ]);
       if (responses.some((response) => response.status === 401)) {
         logout("Your session expired. Please log in again.");
@@ -96,6 +101,43 @@ export default function App() {
       console.error("API connection error:", err);
       setError("Cannot connect to the backend. Check your deployed API Gateway URL.");
     } finally { setLoading(false); }
+  }
+
+  async function apiAction(path: string, init: RequestInit = {}) {
+    const token = localStorage.getItem("token");
+    const response = await fetch(`${API}${path}`, { ...init, headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(init.headers || {}) } });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
+    return data;
+  }
+  async function submitJob(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setActionMessage("");
+    try { await apiAction("/api/jobs", { method: "POST", body: JSON.stringify({ ...jobForm, status: "OPEN", applicationDeadline: jobForm.applicationDeadline || null }) }); setActionMessage("Vacancy published successfully."); setJobForm({ title: "", companyName: "", location: "Remote", employmentType: "FULL_TIME", description: "", requiredSkills: "", salaryRange: "", experienceRequired: "Fresher", applicationDeadline: "" }); await loadData(); }
+    catch (e) { setActionMessage(e instanceof Error ? e.message : "Could not publish vacancy."); }
+  }
+  async function submitApplication(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); if (!applyJob) return; setActionMessage("");
+    try { await apiAction("/api/applications", { method: "POST", body: JSON.stringify({ jobId: applyJob.id, candidateName: user?.fullName || user?.username, candidateEmail: applyForm.candidateEmail, resumeUrl: applyForm.resumeUrl, coverLetter: applyForm.coverLetter }) }); setActionMessage("Application submitted successfully."); setApplyJob(null); setApplyForm({candidateEmail:"",resumeUrl:"",coverLetter:""}); await loadData(); }
+    catch (e) { setActionMessage(e instanceof Error ? e.message : "Could not submit application."); }
+  }
+  async function updateApplicationStatus(app: Application, status: string) {
+    try { await apiAction(`/api/applications/${app.id}/status`, { method: "PATCH", body: JSON.stringify({status}) }); setActionMessage(`Application #${app.id} updated to ${status}.`); await loadData(); }
+    catch (e) { setActionMessage(e instanceof Error ? e.message : "Could not update application."); }
+  }
+  async function updateJobStatus(job: Job, status: string) {
+    try { await apiAction(`/api/jobs/${job.id}/status`, { method: "PATCH", body: JSON.stringify({status}) }); setActionMessage(`${job.title} marked ${status.toLowerCase()}.`); await loadData(); }
+    catch (e) { setActionMessage(e instanceof Error ? e.message : "Could not update vacancy."); }
+  }
+  async function submitInterview(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setActionMessage("");
+    const app = applications.find(a => a.id === Number(interviewForm.applicationId));
+    const job = jobs.find(j => j.id === app?.jobId);
+    try { await apiAction("/api/recruitment", { method: "POST", body: JSON.stringify({ applicationId: Number(interviewForm.applicationId), jobId: app?.jobId, jobTitle: job?.title, candidateId: app?.candidateId, candidateName: app?.candidateName, interviewDateTime: interviewForm.interviewDateTime, interviewMode: interviewForm.interviewMode, interviewLocation: interviewForm.interviewLocation, interviewer: interviewForm.interviewer }) }); setActionMessage("Interview scheduled successfully."); setInterviewForm({applicationId:"",interviewDateTime:"",interviewMode:"ONLINE",interviewLocation:"",interviewer:""}); await loadData(); }
+    catch (e) { setActionMessage(e instanceof Error ? e.message : "Could not schedule interview."); }
+  }
+  async function updateInterview(interview: Interview, action: string, value: string) {
+    try { await apiAction(`/api/recruitment/${interview.id}/${action}`, { method: "PATCH", body: JSON.stringify(action === "interview-status" ? {interviewStatus:value} : {finalStatus:value}) }); setActionMessage("Interview updated."); await loadData(); }
+    catch (e) { setActionMessage(e instanceof Error ? e.message : "Could not update interview."); }
   }
 
   async function submitLogin(event: FormEvent<HTMLFormElement>) {
@@ -139,11 +181,18 @@ export default function App() {
   }
 
   const filteredJobs = jobs.filter((job) => `${job.title} ${job.companyName ?? ""} ${job.location ?? ""}`.toLowerCase().includes(search.toLowerCase()));
+  const isRecruiter = user.role?.toUpperCase() === "RECRUITER";
   const menu = [
     { name: "Overview", icon: LayoutDashboard },
-    { name: "Find jobs", icon: Search },
-    { name: "My applications", icon: FileText },
-    { name: "Interviews", icon: CalendarDays },
+    ...(isRecruiter ? [
+      { name: "Manage jobs", icon: BriefcaseBusiness },
+      { name: "Candidates", icon: Users },
+      { name: "Interviews", icon: CalendarDays },
+    ] : [
+      { name: "Find jobs", icon: Search },
+      { name: "My applications", icon: FileText },
+      { name: "Interviews", icon: CalendarDays },
+    ]),
   ];
 
   if (authChecking) return <div style={centerStyle}><p>Checking your session…</p></div>;
@@ -198,10 +247,13 @@ export default function App() {
         <section className="content">
           <p className="eyebrow">YOUR NEXT CHAPTER STARTS HERE</p>
           <div className="heading-row"><div><h1>{page === "Overview" ? `Good to see you, ${displayName}!` : page}</h1><p>Explore opportunities and keep your career journey moving.</p></div><span className="candidate-badge">● {user.role}</span></div>
-          {page === "Overview" && <><section className="hero"><div><p className="hero-label">✧ YOUR TALENT WORKSPACE</p><h2>The right opportunity can change everything.</h2><p>Explore roles that match your ambition and follow every application in one place.</p><button className="hero-button" onClick={() => setPage("Find jobs")}>Explore opportunities ↗</button></div><BriefcaseBusiness className="hero-icon" size={105} /></section><div className="stats"><Stat icon={<BriefcaseBusiness />} label="Available jobs" value={jobs.length} /><Stat icon={<Users />} label="My applications" value={applications.length} /><Stat icon={<CalendarDays />} label="Interviews" value={interviews.length} /><Stat icon={<ShieldCheck />} label="Workspace status" value="Active" /></div><h2 className="section-title">Latest opportunities</h2><p className="muted">Fresh roles from your recruitment workspace</p><JobList jobs={jobs.slice(0, 3)} /><button className="text-button" onClick={() => setPage("Find jobs")}>View all jobs ↗</button></>}
-          {page === "Find jobs" && <><div className="search-box"><Search size={19} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search job title, company, or location" /></div><JobList jobs={filteredJobs} /></>}
+          {page === "Overview" && <><section className="hero"><div><p className="hero-label">✧ YOUR TALENT WORKSPACE</p><h2>The right opportunity can change everything.</h2><p>Explore roles that match your ambition and follow every application in one place.</p><button className="hero-button" onClick={() => setPage("Find jobs")}>Explore opportunities ↗</button></div><BriefcaseBusiness className="hero-icon" size={105} /></section><div className="stats"><Stat icon={<BriefcaseBusiness />} label="Available jobs" value={jobs.length} /><Stat icon={<Users />} label="My applications" value={applications.length} /><Stat icon={<CalendarDays />} label="Interviews" value={interviews.length} /><Stat icon={<ShieldCheck />} label="Workspace status" value="Active" /></div><h2 className="section-title">Latest opportunities</h2><p className="muted">Fresh roles from your recruitment workspace</p><JobList jobs={jobs.filter((job) => (job.status ?? "OPEN").toUpperCase() === "OPEN").slice(0, 3)} /><button className="text-button" onClick={() => setPage("Find jobs")}>View all jobs ↗</button></>}
+          {page === "Find jobs" && <><div className="search-box"><Search size={19} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search job title, company, or location" /></div><div className="job-list">{filteredJobs.filter((job) => (job.status ?? "OPEN").toUpperCase() === "OPEN").map((job) => <article className="job-card" key={job.id}><div className="job-icon"><BriefcaseBusiness /></div><div className="job-details"><h3>{job.title}</h3><p>{job.companyName ?? "TalentSync Partner"}</p><div className="job-meta"><span><MapPin size={14} /> {job.location ?? "Remote"}</span><span>{job.employmentType ?? "Full-time"}</span></div><p className="description">{job.description}</p>{job.requiredSkills && <small>Skills: {job.requiredSkills}</small>}</div><button className="hero-button" onClick={() => { setApplyJob(job); setActionMessage(""); }}>Apply</button></article>)}</div>{applyJob && <div className="panel"><h2>Apply for {applyJob.title}</h2><form style={formStyle} onSubmit={(e) => void submitApplication(e)}><label style={labelStyle}>Email<input type="email" required value={applyForm.candidateEmail} onChange={(e) => setApplyForm({...applyForm,candidateEmail:e.target.value})} style={inputStyle}/></label><label style={labelStyle}>Resume URL<input type="url" required placeholder="https://..." value={applyForm.resumeUrl} onChange={(e) => setApplyForm({...applyForm,resumeUrl:e.target.value})} style={inputStyle}/></label><label style={labelStyle}>Cover letter<textarea value={applyForm.coverLetter} onChange={(e) => setApplyForm({...applyForm,coverLetter:e.target.value})} style={inputStyle}/></label><div><button className="hero-button" type="submit">Submit application</button> <button type="button" className="text-button" onClick={() => setApplyJob(null)}>Cancel</button></div></form></div>}</>}
           {page === "My applications" && <div className="panel"><h2>Your applications</h2>{applications.length ? applications.map((app) => <div className="list-row" key={app.id}><FileText /><div><b>Application #{app.id}</b><small>Job ID: {app.jobId ?? "—"}</small></div><span className="status">{app.status ?? "Submitted"}</span></div>) : <Empty text="No applications found yet." />}</div>}
-          {page === "Interviews" && <div className="panel"><h2>Upcoming interviews</h2>{interviews.length ? interviews.map((interview) => <div className="list-row" key={interview.id}><CalendarDays /><div><b>Interview #{interview.id}</b><small>{interview.interviewDate ?? "Date not provided"}</small></div><span className="status">{interview.status ?? "Scheduled"}</span></div>) : <Empty text="No interviews scheduled yet." />}</div>}
+          {page === "Manage jobs" && <div className="panel"><h2>Post a vacancy</h2><form style={formStyle} onSubmit={(e) => void submitJob(e)}><div className="form-grid"><label style={labelStyle}>Job title<input required value={jobForm.title} onChange={e=>setJobForm({...jobForm,title:e.target.value})} style={inputStyle}/></label><label style={labelStyle}>Company<input required value={jobForm.companyName} onChange={e=>setJobForm({...jobForm,companyName:e.target.value})} style={inputStyle}/></label><label style={labelStyle}>Location<input required value={jobForm.location} onChange={e=>setJobForm({...jobForm,location:e.target.value})} style={inputStyle}/></label><label style={labelStyle}>Employment type<select value={jobForm.employmentType} onChange={e=>setJobForm({...jobForm,employmentType:e.target.value})} style={inputStyle}><option value="FULL_TIME">Full-time</option><option value="PART_TIME">Part-time</option><option value="INTERNSHIP">Internship</option><option value="CONTRACT">Contract</option></select></label><label style={labelStyle}>Salary range<input value={jobForm.salaryRange} onChange={e=>setJobForm({...jobForm,salaryRange:e.target.value})} style={inputStyle}/></label><label style={labelStyle}>Experience required<input value={jobForm.experienceRequired} onChange={e=>setJobForm({...jobForm,experienceRequired:e.target.value})} style={inputStyle}/></label><label style={labelStyle}>Application deadline<input type="date" value={jobForm.applicationDeadline} onChange={e=>setJobForm({...jobForm,applicationDeadline:e.target.value})} style={inputStyle}/></label></div><label style={labelStyle}>Description<textarea required value={jobForm.description} onChange={e=>setJobForm({...jobForm,description:e.target.value})} style={inputStyle}/></label><label style={labelStyle}>Required skills<input value={jobForm.requiredSkills} onChange={e=>setJobForm({...jobForm,requiredSkills:e.target.value})} style={inputStyle}/></label><button className="hero-button" type="submit">Publish vacancy</button></form><h2 style={{marginTop:28}}>Your vacancies</h2>{jobs.filter(j=>j.companyName !== "TalentSync Demo Partner").map(job=><div className="list-row" key={job.id}><BriefcaseBusiness/><div><b>{job.title}</b><small>{job.companyName} · {job.location}</small></div><button className="text-button" onClick={()=>void updateJobStatus(job,"CLOSED")}>Close vacancy</button></div>)}</div>}
+          {page === "Candidates" && <div className="panel"><h2>Candidate applications</h2>{applications.length ? applications.map(app=><div className="list-row candidate-row" key={app.id}><Users/><div><b>{app.candidateName || app.candidateId || "Candidate"} · Application #{app.id}</b><small>Job ID: {app.jobId ?? "—"} · {app.candidateEmail || "Email not provided"}</small>{app.resumeUrl && <a href={app.resumeUrl} target="_blank" rel="noreferrer">View resume</a>}{app.coverLetter && <p>{app.coverLetter}</p>}<small>Status: {app.status}</small></div><div className="action-stack"><button className="text-button" onClick={()=>void updateApplicationStatus(app,"SHORTLISTED")}>Shortlist</button><button className="text-button" onClick={()=>void updateApplicationStatus(app,"REJECTED")}>Reject</button><button className="text-button" onClick={()=>{setInterviewForm({...interviewForm,applicationId:String(app.id)});setPage("Interviews");}}>Schedule interview</button></div></div>) : <Empty text="Candidate applications will appear here." />}</div>}
+          {page === "Interviews" && <div className="panel"><h2>{isRecruiter ? "Schedule and manage interviews" : "Upcoming interviews"}</h2>{isRecruiter && <form style={formStyle} onSubmit={(e)=>void submitInterview(e)}><div className="form-grid"><label style={labelStyle}>Application ID<input required type="number" min="1" value={interviewForm.applicationId} onChange={e=>setInterviewForm({...interviewForm,applicationId:e.target.value})} style={inputStyle}/></label><label style={labelStyle}>Date and time<input required type="datetime-local" value={interviewForm.interviewDateTime} onChange={e=>setInterviewForm({...interviewForm,interviewDateTime:e.target.value})} style={inputStyle}/></label><label style={labelStyle}>Mode<select value={interviewForm.interviewMode} onChange={e=>setInterviewForm({...interviewForm,interviewMode:e.target.value})} style={inputStyle}><option value="ONLINE">Online</option><option value="IN_PERSON">In person</option><option value="PHONE">Phone</option></select></label><label style={labelStyle}>Meeting link / location<input required value={interviewForm.interviewLocation} onChange={e=>setInterviewForm({...interviewForm,interviewLocation:e.target.value})} style={inputStyle}/></label><label style={labelStyle}>Interviewer<input required value={interviewForm.interviewer} onChange={e=>setInterviewForm({...interviewForm,interviewer:e.target.value})} style={inputStyle}/></label></div><button className="hero-button" type="submit">Schedule interview</button></form>}{interviews.length ? interviews.map(interview => <div className="list-row" key={interview.id}><CalendarDays/><div><b>{interview.jobTitle || "Interview"} · {interview.candidateName || "Candidate"} (Application #{interview.applicationId})</b><small>{interview.interviewDateTime || "Date not provided"} · {interview.interviewMode || "ONLINE"} · {interview.interviewLocation || ""}</small><small>Status: {interview.interviewStatus || "SCHEDULED"} · Result: {interview.finalStatus || "PENDING"}</small></div>{isRecruiter && <div className="action-stack"><button className="text-button" onClick={()=>void updateInterview(interview,"interview-status","COMPLETED")}>Mark completed</button><button className="text-button" onClick={()=>void updateInterview(interview,"final-status","SELECTED")}>Select</button><button className="text-button" onClick={()=>void updateInterview(interview,"final-status","REJECTED")}>Reject</button></div>}</div>) : <Empty text="No interviews scheduled yet." />}</div>}
+          {actionMessage && <p role="status" className="notice">{actionMessage}</p>}
           {loading && <p className="notice">Loading data…</p>}{error && <p className="error">{error}</p>}
         </section>
       </main>
