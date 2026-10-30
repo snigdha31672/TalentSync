@@ -5,6 +5,7 @@ import com.recruitment.recruitmentservice.entity.Recruitment;
 import com.recruitment.recruitmentservice.repository.RecruitmentRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -67,7 +68,13 @@ public class RecruitmentServiceImpl implements RecruitmentService {
         recruitment.setScheduledAt(LocalDateTime.now());
         recruitment.setUpdatedAt(LocalDateTime.now());
 
-        return repository.save(recruitment);
+        try {
+            return repository.save(recruitment);
+        } catch (DataIntegrityViolationException e) {
+            // The database constraint also protects against simultaneous duplicate requests.
+            throw new IllegalStateException(
+                    "An interview record already exists for application ID: " + recruitment.getApplicationId(), e);
+        }
     }
 
     @Override
