@@ -9,7 +9,7 @@ spring:
     gateway:
       routes:
         - id: auth-service
-          uri: lb://auth-service
+          uri: https://talentsync-auth-service.onrender.com
           predicates:
             - Path=/api/auth/**
 
