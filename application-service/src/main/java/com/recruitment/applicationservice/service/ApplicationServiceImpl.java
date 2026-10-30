@@ -5,6 +5,7 @@ import com.recruitment.applicationservice.entity.Application;
 import com.recruitment.applicationservice.repository.ApplicationRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 
@@ -72,7 +73,12 @@ public class ApplicationServiceImpl implements ApplicationService {
         application.setCreatedAt(LocalDateTime.now());
         application.setUpdatedAt(LocalDateTime.now());
 
-        return repository.save(application);
+        try {
+            return repository.save(application);
+        } catch (DataIntegrityViolationException e) {
+            // Handles concurrent duplicate submissions protected by the database constraint.
+            throw new IllegalStateException("You have already submitted an application for this job.");
+        }
     }
 
     @Override
